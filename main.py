@@ -270,24 +270,22 @@ def persist_user_tokens():
 
 
 if __name__ == "__main__":
-    # 1. 解析配置环境
+    # 1. 获取配置
     config_env = os.environ.get("CONFIG")
     if not config_env:
         print("CONFIG is empty")
         exit(1)
         
     config_raw = json.loads(config_env)
-    
-    # 2. 兼容单账号(字典)和多账号(列表)格式
     accounts = config_raw if isinstance(config_raw, list) else [config_raw]
 
-    # 3. 开始循环处理每个账号
+    # 2. 循环处理
     for acc in accounts:
         user_id = acc.get('USER', '未知账号')
         print(f"\n>>> 开始处理: {user_id}")
         try:
-            # 这里的参数名必须与脚本原本定义的 login_and_post_step 一致
-            login_and_post_step(
+            # 注意：这里将函数名改为了常见的 'main'
+            main(
                 acc,
                 push_plus_token=acc.get('PUSH_PLUS_TOKEN'),
                 push_plus_hour=acc.get('PUSH_PLUS_HOUR'),
