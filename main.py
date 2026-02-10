@@ -270,42 +270,36 @@ def persist_user_tokens():
 
 
 if __name__ == "__main__":
-    # 1. 安全获取环境变量
+    # 1. 解析配置环境
     config_env = os.environ.get("CONFIG")
     if not config_env:
-        print("错误：未找到 CONFIG 配置，请检查 GitHub Secrets")
+        print("CONFIG is empty")
         exit(1)
-
-    try:
-        config_data = json.loads(config_env)
-    except json.JSONDecodeError:
-        print("错误：CONFIG 格式不是有效的 JSON，请检查双引号和逗号")
-        exit(1)
-
-    # 2. 核心逻辑：兼容单账号（字典）和多账号（列表）
-    # 如果 config_data 是列表就直接用，否则把它套进列表里
-    accounts = config_data if isinstance(config_data, list) else [config_data]
-
-    # 3. 循环批处理每一个账号
-    for config in accounts:
-        user_id = config.get('USER', '未知账号')
-        print(f"\n>>> 正在处理账号: {user_id}")
         
+    config_raw = json.loads(config_env)
+    
+    # 2. 兼容单账号(字典)和多账号(列表)格式
+    accounts = config_raw if isinstance(config_raw, list) else [config_raw]
+
+    # 3. 开始循环处理每个账号
+    for acc in accounts:
+        user_id = acc.get('USER', '未知账号')
+        print(f"\n>>> 开始处理: {user_id}")
         try:
-            # 调用原本的执行函数，从当前的 config 字典里取值
+            # 这里的参数名必须与脚本原本定义的 login_and_post_step 一致
             login_and_post_step(
-                config,
-                push_plus_token=config.get('PUSH_PLUS_TOKEN'),
-                push_plus_hour=config.get('PUSH_PLUS_HOUR'),
-                push_plus_max=config.get('PUSH_PLUS_MAX'),
-                push_wechat_webhook_key=config.get('PUSH_WECHAT_WEBHOOK_KEY'),
-                telegram_bot_token=config.get('TELEGRAM_BOT_TOKEN'),
-                telegram_chat_id=config.get('TELEGRAM_CHAT_ID')
+                acc,
+                push_plus_token=acc.get('PUSH_PLUS_TOKEN'),
+                push_plus_hour=acc.get('PUSH_PLUS_HOUR'),
+                push_plus_max=acc.get('PUSH_PLUS_MAX'),
+                push_wechat_webhook_key=acc.get('PUSH_WECHAT_WEBHOOK_KEY'),
+                telegram_bot_token=acc.get('TELEGRAM_BOT_TOKEN'),
+                telegram_chat_id=acc.get('TELEGRAM_CHAT_ID')
             )
         except Exception as e:
-            print(f"账号 {user_id} 运行失败，原因: {e}")
+            print(f"账号 {user_id} 运行失败: {e}")
         
-        # 为了防封号，账号之间休息 5 秒
+        # 账号间休息 5 秒
         time.sleep(5)
 
-    print("\n✅ 所有账号同步任务执行结束")
+    print("\n✅ 所有任务已执行完毕")
