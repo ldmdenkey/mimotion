@@ -3,7 +3,7 @@ name: 刷步数
 on:
   schedule:
     # 0 13 对应北京时间 21:00 (13 + 8 = 21)
-    - cron: '35 22 * * *'
+    - cron: '52 22 * * *'
   workflow_dispatch:
 
 jobs:
