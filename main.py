@@ -270,58 +270,40 @@ def persist_user_tokens():
 
 
 if __name__ == "__main__":
-    # 北京时间
-    time_bj = get_beijing_time()
-    encrypt_support = False
-    user_tokens = dict()
-    if os.environ.__contains__("AES_KEY") is True:
-        aes_key = os.environ.get("AES_KEY")
-        if aes_key is not None:
-            aes_key = aes_key.encode('utf-8')
-            if len(aes_key) == 16:
-                encrypt_support = True
-        if encrypt_support:
-            user_tokens = prepare_user_tokens()
-        else:
-            print("AES_KEY未设置或者无效 无法使用加密保存功能")
-    if os.environ.__contains__("CONFIG") is False:
-        print("未配置CONFIG变量，无法执行")
+    # 1. 获取并解析 CONFIG 变量
+    config_env = os.environ.get("CONFIG")
+    if not config_env:
+        print("错误：未找到 CONFIG 环境变量")
         exit(1)
-    else:
-        # region 初始化参数
-        config = dict()
+        
+    try:
+        config_raw = json.loads(config_env)
+    except json.JSONDecodeError:
+        print("错误：CONFIG 格式不正确，请确保 Secret 配置是标准的 JSON 格式")
+        exit(1)
+
+    # 2. 统一转换为列表格式（实现单账号与多账号兼容）
+    configs = config_raw if isinstance(config_raw, list) else [config_raw]
+
+    # 3. 开启循环，逐个处理账号
+    for account_config in configs:
+        user_name = account_config.get('USER', '未知账号')
+        print(f"\n--- 正在处理账号: {user_name} ---")
         try:
-            config_raw = json.loads(os.environ.get("CONFIG"))
-            # 这一步是为了兼容单账号和多账号格式
-            config = config_raw if isinstance(config_raw, list) else [config_raw]
-        except:
-            print("CONFIG格式不正确，请检查Secret配置，请严格按照JSON格式：使用双引号包裹字段和值，逗号不能多也不能少")
-            traceback.print_exc()
-            exit(1)
-        # 创建推送配置对象
-        push_config = push_util.PushConfig(
-            push_plus_token=config.get('PUSH_PLUS_TOKEN'),
-            push_plus_hour=config.get('PUSH_PLUS_HOUR'),
-            push_plus_max=get_int_value_default(config, 'PUSH_PLUS_MAX', 30),
-            push_wechat_webhook_key=config.get('PUSH_WECHAT_WEBHOOK_KEY'),
-            telegram_bot_token=config.get('TELEGRAM_BOT_TOKEN'),
-            telegram_chat_id=config.get('TELEGRAM_CHAT_ID')
-        )
-        sleep_seconds = config.get('SLEEP_GAP')
-        if sleep_seconds is None or sleep_seconds == '':
-            sleep_seconds = 5
-        sleep_seconds = float(sleep_seconds)
-        users = config.get('USER')
-        passwords = config.get('PWD')
-        if users is None or passwords is None:
-            print("未正确配置账号密码，无法执行")
-            exit(1)
-        min_step, max_step = get_min_max_by_time()
-        use_concurrent = config.get('USE_CONCURRENT')
-        if use_concurrent is not None and use_concurrent == 'True':
-            use_concurrent = True
-        else:
-            print(f"多账号执行间隔：{sleep_seconds}")
-            use_concurrent = False
-        # endregion
-        execute()
+            # 调用原本的登录和提交逻辑
+            login_and_post_step(
+                account_config,
+                push_plus_token=account_config.get('PUSH_PLUS_TOKEN'),
+                push_plus_hour=account_config.get('PUSH_PLUS_HOUR'),
+                push_plus_max=account_config.get('PUSH_PLUS_MAX'),
+                push_wechat_webhook_key=account_config.get('PUSH_WECHAT_WEBHOOK_KEY'),
+                telegram_bot_token=account_config.get('TELEGRAM_BOT_TOKEN'),
+                telegram_chat_id=account_config.get('TELEGRAM_CHAT_ID')
+            )
+        except Exception as e:
+            print(f"账号 {user_name} 执行失败，原因: {e}")
+        
+        # 账号间休息 5 秒，防止并发冲突
+        time.sleep(int(account_config.get('SLEEP_GAP', 5)))
+
+    print("\n✅ 所有账号处理任务结束")
