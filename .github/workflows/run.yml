@@ -1,44 +1,42 @@
-name: 自动同步步数
+name: 刷步数
 
 on:
-  # 1. 定时触发：北京时间 21:00 (UTC 13:00)
   schedule:
+    # 0 13 对应北京时间 21:00 (13 + 8 = 21)
     - cron: '0 13 * * *'
-  # 2. 手动触发：保留你下午成功使用的手动按钮
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 授予读写权限，防止 Git 提交报错
-    permissions:
-      contents: write
-
+    timeout-minutes: 60
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-
-      - name: 初始化 Python 环境
-        uses: actions/setup-python@v5
+      - name: Checkout codes
+        uses: actions/checkout@v5
         with:
-          python_version: '3.10'
-
-      - name: 安装依赖库
+          token: ${{ secrets.PAT }} #此处PAT需要申请，教程详见：README
+      - name: Update system and install zsh
         run: |
-          pip install requests pytz pycryptodome
-
-      - name: 执行同步脚本
+          sudo -E apt-get -qq update
+          sudo -E apt-get install zsh -y
+          
+      - name: 初始化Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+          
+      - name: 开始
         env:
-          CONFIG: ${{ secrets.CONFIG }}
-          AES_KEY: ${{ secrets.AES_KEY }}
+            CONFIG: ${{ secrets.CONFIG }}
+            AES_KEY: ${{ secrets.AES_KEY }}
         run: |
+          pip3 install requests pytz pycryptodome
           python3 main.py
 
-      - name: 持久化 Token 记录
+      - name: persist tokens
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
           git add .
-          # 如果没有文件变化，直接跳过，防止报错中断
-          git commit -m "自动更新令牌记录" || exit 0
-          git push
+          git commit -m "persist tokens trigger by ${{ github.event_name }}"
+          git push origin master
