@@ -1,22 +1,21 @@
 on:
   schedule:
-    # 1. 每天北京时间 08:00 (UTC 00:00)
+    # 1. 北京时间 08:00 (UTC 00:00)
     - cron: '0 0 * * *'
-    # 2. 每天北京时间 14:00 (UTC 06:00)
+    # 2. 北京时间 14:00 (UTC 06:00)
     - cron: '0 6 * * *'
-    # 3. 每天北京时间 21:00 (UTC 13:00)
+    # 3. 北京时间 21:00 (UTC 13:00)
     - cron: '0 13 * * *'
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
     permissions:
-      contents: write # 赋予修改 Token 的权限
+      contents: write
 
     steps:
-      - name: Checkout codes
+      - name: 检出代码
         uses: actions/checkout@v4
 
       - name: 初始化Python
@@ -27,22 +26,21 @@ jobs:
       - name: 随机延迟运行
         run: |
           delay=$((1 + RANDOM % 900))
-          echo "为了模拟真实操作，系统将随机延迟 $delay 秒后开始..."
+          echo "随机延迟 $delay 秒后开始..."
           sleep $delay
           
-      - name: 开始同步
+      - name: 执行同步
         env:
             CONFIG: ${{ secrets.CONFIG }}
             AES_KEY: ${{ secrets.AES_KEY }}
-            PUSH_KEY: ${{ secrets.PUSH_KEY }} # 必须加这一行，微信才有提醒
         run: |
           pip3 install requests pytz pycryptodome
           python3 main.py
 
-      - name: persist tokens
+      - name: 持久化 Token
         run: |
           git config --local user.name github-actions
           git config --local user.email github-actions@users.noreply.github.com
           git add .
-          git commit -m "persist tokens trigger by ${{ github.event_name }}" || exit 0
+          git commit -m "update token" || exit 0
           git push origin master
