@@ -1,135 +1,112 @@
 # -*- coding: utf8 -*-
-import math
-import traceback
+import math, traceback, uuid, json, random, re, time, os, pytz
 from datetime import datetime
-import pytz
-import uuid
-
-import json
-import random
-import re
-import time
-import os
-
 from util.aes_help import encrypt_data, decrypt_data
 import util.zepp_helper as zeppHelper
 import util.push_util as push_util
 
-# 获取默认值转int
-def get_int_value_default(_config: dict, _key, default):
+def get_int_value_default(_config, _key, default):
     _config.setdefault(_key, default)
     return int(_config.get(_key))
 
-
-# 获取当前时间对应的最大和最小步数
-def get_min_max_by_time(hour=None, minute=None):
-    if hour is None:
-        hour = time_bj.hour
-    if minute is None:
-        minute = time_bj.minute
-    time_rate = min((hour * 60 + minute) / (22 * 60), 1)
-    min_step = get_int_value_default(config, 'MIN_STEP', 18000)
-    max_step = get_int_value_default(config, 'MAX_STEP', 25000)
-    return int(time_rate * min_step), int(time_rate * max_step)
-
-
-# 虚拟ip地址
-def fake_ip():
-    return f"{223}.{random.randint(64, 117)}.{random.randint(0, 255)}.{random.randint(0, 255)}"
-
-
-# 账号脱敏
-def desensitize_user_name(user):
-    if len(user) <= 8:
-        ln = max(math.floor(len(user) / 3), 1)
-        return f'{user[:ln]}***{user[-ln:]}'
-    return f'{user[:3]}****{user[-4:]}'
-
-
-# 获取北京时间
 def get_beijing_time():
-    target_timezone = pytz.timezone('Asia/Shanghai')
-    return datetime.now().astimezone(target_timezone)
+    return datetime.now().astimezone(pytz.timezone('Asia/Shanghai'))
 
-
-# 格式化时间
 def format_now():
     return get_beijing_time().strftime("%Y-%m-%d %H:%M:%S")
 
-
-# 获取时间戳
 def get_time():
-    current_time = get_beijing_time()
-    return "%.0f" % (current_time.timestamp() * 1000)
+    return "%.0f" % (get_beijing_time().timestamp() * 1000)
 
-
-# 获取登录code
-def get_access_token(location):
-    code_pattern = re.compile("(?<=access=).*?(?=&)")
-    result = code_pattern.findall(location)
-    if result is None or len(result) == 0:
-        return None
-    return result[0]
-
-
-def get_error_code(location):
-    code_pattern = re.compile("(?<=error=).*?(?=&)")
-    result = code_pattern.findall(location)
-    if result is None or len(result) == 0:
-        return None
-    return result[0]
-
+def get_min_max_by_time():
+    time_bj = get_beijing_time()
+    time_rate = min((time_bj.hour * 60 + time_bj.minute) / (22 * 60), 1)
+    min_s = get_int_value_default(config, 'MIN_STEP', 12000)
+    max_s = get_int_value_default(config, 'MAX_STEP', 18000)
+    return int(time_rate * min_s), int(time_rate * max_s)
 
 class MiMotionRunner:
     def __init__(self, _user, _passwd):
-        self.user_id = None
+        self.user = str(_user) if str(_user).startswith("+86") or "@" in str(_user) else "+86"+str(_user)
+        self.password = str(_passwd)
+        self.is_phone = self.user.startswith("+86")
         self.device_id = str(uuid.uuid4())
-        user = str(_user)
-        password = str(_passwd)
-        self.invalid = False
-        self.log_str = ""
-        if user == '' or password == '':
-            self.error = "用户名或密码填写有误！"
-            self.invalid = True
-            pass
-        self.password = password
-        if (user.startswith("+86")) or "@" in user:
-            user = user
-        else:
-            user = "+86" + user
-        if user.startswith("+86"):
-            self.is_phone = True
-        else:
-            self.is_phone = False
-        self.user = user
+        self.user_id, self.invalid, self.log_str = None, False, ""
 
-    # 登录
     def login(self):
-        user_token_info = user_tokens.get(self.user)
-        if user_token_info is not None:
-            access_token = user_token_info.get("access_token")
-            login_token = user_token_info.get("login_token")
-            app_token = user_token_info.get("app_token")
-            self.device_id = user_token_info.get("device_id")
-            self.user_id = user_token_info.get("user_id")
-            if self.device_id is None:
-                self.device_id = str(uuid.uuid4())
-                user_token_info["device_id"] = self.device_id
-            ok, msg = zeppHelper.check_app_token(app_token)
+        user_info = user_tokens.get(self.user)
+        if user_info:
+            self.user_id = user_info.get("user_id")
+            self.device_id = user_info.get("device_id", self.device_id)
+            ok, _ = zeppHelper.check_app_token(user_info.get("app_token"))
             if ok:
-                self.log_str += "使用加密保存的app_token\n"
-                return app_token
-            else:
-                self.log_str += f"app_token失效 重新获取 last grant time: {user_token_info.get('app_token_time')}\n"
-                app_token, msg = zeppHelper.grant_app_token(login_token)
-                if app_token is None:
-                    self.log_str += f"login_token 失效 重新获取 last grant time: {user_token_info.get('login_token_time')}\n"
-                    login_token, app_token, user_id, msg = zeppHelper.grant_login_tokens(access_token, self.device_id,
-                                                                                         self.is_phone)
-                    if login_token is None:
-                        self.log_str += f"access_token 已失效：{msg} last grant time:{user_token_info.get('access_token_time')}\n"
-                    else:
-                        user_token_info["login_token"] = login_token
-                        user_token_info["app_token"] = app_token
-                        user_token_info["user_id"] = user_id
-                        user_token_info["login_token_time"] = get_
+                self.log_str += "使用加密Token成功\n"
+                return user_info.get("app_token")
+        
+        # 重新登录逻辑
+        token, msg = zeppHelper.login_access_token(self.user, self.password)
+        if not token: return None
+        lt, at, uid, _ = zeppHelper.grant_login_tokens(token, self.device_id, self.is_phone)
+        if not lt: return None
+        
+        user_tokens[self.user] = {"access_token":token, "login_token":lt, "app_token":at, "user_id":uid, "device_id":self.device_id}
+        self.user_id = uid
+        return at
+
+    def run(self, min_s, max_s):
+        at = self.login()
+        if not at: return "登录失败", False
+        
+        # --- 吉利步数核心逻辑 ---
+        step_val = 0
+        for _ in range(200): # 尝试200次找最吉利的
+            tmp = random.randint(min_s, max_s)
+            s = str(tmp)
+            if '4' not in s:
+                step_val = tmp
+                if any(d in s for d in '689'): break # 只要含689且没4，立即锁定
+        if step_val == 0: step_val = random.randint(min_s, max_s) # 彻底没辙时的保底
+        
+        step = str(step_val)
+        ok, msg = zeppHelper.post_fake_brand_data(step, at, self.user_id)
+        return f"修改步数({step}) [{msg}]", ok
+
+def run_single(total, idx, u, p):
+    print(f"[{format_now()}] [{idx+1}/{total}] 账号: {u[:3]}****{u[-4:]}")
+    try:
+        runner = MiMotionRunner(u, p)
+        msg, ok = runner.run(min_step, max_step)
+        print(runner.log_str + msg)
+        return {"user":u, "success":ok, "msg":msg}
+    except:
+        print(traceback.format_exc()); return {"user":u, "success":False, "msg":"出错"}
+
+if __name__ == "__main__":
+    if "CONFIG" not in os.environ: exit(1)
+    config = json.loads(os.environ.get("CONFIG"))
+    aes_key = os.environ.get("AES_KEY", "").encode('utf-8')
+    encrypt_support = len(aes_key) == 16
+    
+    # 读取Token
+    user_tokens = {}
+    if encrypt_support and os.path.exists("encrypted_tokens.data"):
+        try:
+            with open("encrypted_tokens.data", 'rb') as f:
+                user_tokens = json.loads(decrypt_data(f.read(), aes_key, None).decode('utf-8'))
+        except: pass
+
+    users, pwds = config.get('USER').split('#'), config.get('PWD').split('#')
+    min_step, max_step = get_min_max_by_time()
+    results = [run_single(len(users), i, u, p) for i, (u, p) in enumerate(zip(users, pwds))]
+
+    # 保存Token
+    if encrypt_support:
+        with open("encrypted_tokens.data", 'wb') as f:
+            f.write(encrypt_data(json.dumps(user_tokens).encode("utf-8"), aes_key, None))
+    
+    summary = f"\n总数{len(users)}，成功：{sum(1 for r in results if r['success'])}"
+    print(summary)
+    push_util.push_results(results, summary, push_util.PushConfig(
+        config.get('PUSH_PLUS_TOKEN'), config.get('PUSH_PLUS_HOUR'), 30,
+        config.get('PUSH_WECHAT_WEBHOOK_KEY'), config.get('TELEGRAM_BOT_TOKEN'), config.get('TELEGRAM_CHAT_ID')
+    ))
