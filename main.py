@@ -1,5 +1,5 @@
 # -*- coding: utf8 -*-
-import math, traceback, uuid, json, random, re, time, os, pytz
+import math, traceback, uuid, json, random, re, time, os, pytz, requests
 from datetime import datetime
 from util.aes_help import encrypt_data, decrypt_data
 import util.zepp_helper as zeppHelper
@@ -18,12 +18,46 @@ def format_now():
 def get_time():
     return "%.0f" % (get_beijing_time().timestamp() * 1000)
 
+# --- 新增：获取合肥实时天气 ---
+def get_hefei_weather():
+    try:
+        # 获取合肥英文天气简码，超时设置5秒防阻塞
+        resp = requests.get("https://wttr.in/Hefei?format=%C", timeout=5)
+        if resp.status_code == 200:
+            return resp.text.strip().lower()
+        return "unknown"
+    except:
+        return "unknown"
+
+# --- 修改：根据天气动态生成区间 ---
 def get_min_max_by_time():
+    config_min = get_int_value_default(config, 'MIN_STEP', 12000)
+    config_max = get_int_value_default(config, 'MAX_STEP', 18000)
+    
+    weather = get_hefei_weather()
+    weather_desc = "未知"
+
+    # 根据天气关键词调整基础步数范围
+    if any(word in weather for word in ['sun', 'clear', 'cloud', 'fair']):
+        base_min, base_max = 15000, 18000
+        weather_desc = f"好天气({weather})"
+    elif any(word in weather for word in ['rain', 'snow', 'shower', 'sleet', 'thunder', 'storm', 'drizzle']):
+        base_min, base_max = 10000, 12500
+        weather_desc = f"雨雪天({weather})"
+    elif any(word in weather for word in ['overcast', 'mist', 'fog', 'haze']):
+        base_min, base_max = 11000, 14000
+        weather_desc = f"阴雾天({weather})"
+    else:
+        # 获取失败或无法识别时，使用配置的默认值
+        base_min, base_max = config_min, config_max
+        if weather != "unknown":
+            weather_desc = f"其他天气({weather})"
+        else:
+            weather_desc = "获取天气失败，使用默认配置"
+
     time_bj = get_beijing_time()
     time_rate = min((time_bj.hour * 60 + time_bj.minute) / (22 * 60), 1)
-    min_s = get_int_value_default(config, 'MIN_STEP', 12000)
-    max_s = get_int_value_default(config, 'MAX_STEP', 18000)
-    return int(time_rate * min_s), int(time_rate * max_s)
+    return int(time_rate * base_min), int(time_rate * base_max), weather_desc
 
 class MiMotionRunner:
     def __init__(self, _user, _passwd):
@@ -71,10 +105,11 @@ class MiMotionRunner:
         ok, msg = zeppHelper.post_fake_brand_data(step, at, self.user_id)
         return f"修改步数({step}) [{msg}]", ok
 
-def run_single(total, idx, u, p):
+def run_single(total, idx, u, p, min_step, max_step, weather_desc):
     print(f"[{format_now()}] [{idx+1}/{total}] 账号: {u[:3]}****{u[-4:]}")
     try:
         runner = MiMotionRunner(u, p)
+        runner.log_str += f"天气: {weather_desc}, 目标区间: {min_step}~{max_step}\n"
         msg, ok = runner.run(min_step, max_step)
         print(runner.log_str + msg)
         return {"user":u, "success":ok, "msg":msg}
@@ -96,15 +131,20 @@ if __name__ == "__main__":
         except: pass
 
     users, pwds = config.get('USER').split('#'), config.get('PWD').split('#')
-    min_step, max_step = get_min_max_by_time()
-    results = [run_single(len(users), i, u, p) for i, (u, p) in enumerate(zip(users, pwds))]
+    
+    # 获取天气和步数区间
+    min_step, max_step, weather_desc = get_min_max_by_time()
+    print(f"当前合肥天气判定: {weather_desc}")
+    
+    results = [run_single(len(users), i, u, p, min_step, max_step, weather_desc) for i, (u, p) in enumerate(zip(users, pwds))]
 
     # 保存Token
     if encrypt_support:
         with open("encrypted_tokens.data", 'wb') as f:
             f.write(encrypt_data(json.dumps(user_tokens).encode("utf-8"), aes_key, None))
     
-    summary = f"\n总数{len(users)}，成功：{sum(1 for r in results if r['success'])}"
+    # 将天气情况也加入到推送摘要中
+    summary = f"\n合肥天气: {weather_desc}\n总数{len(users)}，成功：{sum(1 for r in results if r['success'])}"
     print(summary)
     push_util.push_results(results, summary, push_util.PushConfig(
         config.get('PUSH_PLUS_TOKEN'), config.get('PUSH_PLUS_HOUR'), 30,
