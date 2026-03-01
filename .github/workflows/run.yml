@@ -2,11 +2,7 @@ name: 刷步数
 
 on:
   schedule:
-    # 1. 北京时间 08:00 (UTC 00:00)
-    - cron: '0 0 * * *'
-    # 2. 北京时间 14:00 (UTC 06:00)
-    - cron: '0 6 * * *'
-    # 3. 北京时间 21:00 (UTC 13:00)
+    # 每天北京时间 21:00 (UTC 13:00) 执行一次
     - cron: '0 13 * * *'
   workflow_dispatch:
 
@@ -36,7 +32,7 @@ jobs:
             CONFIG: ${{ secrets.CONFIG }}
             AES_KEY: ${{ secrets.AES_KEY }}
         run: |
-          pip3 install requests pytz pycryptodome
+          pip3 install pytz pycryptodome
           python3 main.py
 
       - name: 持久化 Token
