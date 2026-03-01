@@ -1,13 +1,9 @@
 # -*- coding: utf8 -*-
-import math, traceback, uuid, json, random, re, time, os, pytz
+import traceback, uuid, json, random, os, pytz
 from datetime import datetime
 from util.aes_help import encrypt_data, decrypt_data
 import util.zepp_helper as zeppHelper
 import util.push_util as push_util
-
-def get_int_value_default(_config, _key, default):
-    _config.setdefault(_key, default)
-    return int(_config.get(_key))
 
 def get_beijing_time():
     return datetime.now().astimezone(pytz.timezone('Asia/Shanghai'))
@@ -15,23 +11,13 @@ def get_beijing_time():
 def format_now():
     return get_beijing_time().strftime("%Y-%m-%d %H:%M:%S")
 
-def get_time():
-    return "%.0f" % (get_beijing_time().timestamp() * 1000)
-
-def get_min_max_by_time():
-    time_bj = get_beijing_time()
-    time_rate = min((time_bj.hour * 60 + time_bj.minute) / (22 * 60), 1)
-    min_s = get_int_value_default(config, 'MIN_STEP', 12000)
-    max_s = get_int_value_default(config, 'MAX_STEP', 18000)
-    return int(time_rate * min_s), int(time_rate * max_s)
-
 class MiMotionRunner:
     def __init__(self, _user, _passwd):
         self.user = str(_user) if str(_user).startswith("+86") or "@" in str(_user) else "+86"+str(_user)
         self.password = str(_passwd)
         self.is_phone = self.user.startswith("+86")
         self.device_id = str(uuid.uuid4())
-        self.user_id, self.invalid, self.log_str = None, False, ""
+        self.user_id, self.log_str = None, ""
 
     def login(self):
         user_info = user_tokens.get(self.user)
@@ -71,10 +57,11 @@ class MiMotionRunner:
         ok, msg = zeppHelper.post_fake_brand_data(step, at, self.user_id)
         return f"修改步数({step}) [{msg}]", ok
 
-def run_single(total, idx, u, p):
+def run_single(total, idx, u, p, min_step, max_step):
     print(f"[{format_now()}] [{idx+1}/{total}] 账号: {u[:3]}****{u[-4:]}")
     try:
         runner = MiMotionRunner(u, p)
+        runner.log_str += f"目标区间: {min_step}~{max_step}\n"
         msg, ok = runner.run(min_step, max_step)
         print(runner.log_str + msg)
         return {"user":u, "success":ok, "msg":msg}
@@ -96,8 +83,12 @@ if __name__ == "__main__":
         except: pass
 
     users, pwds = config.get('USER').split('#'), config.get('PWD').split('#')
-    min_step, max_step = get_min_max_by_time()
-    results = [run_single(len(users), i, u, p) for i, (u, p) in enumerate(zip(users, pwds))]
+    
+    # 直接读取配置中的步数范围（去除时间折算，满额释放）
+    min_step = int(config.get('MIN_STEP', 12000))
+    max_step = int(config.get('MAX_STEP', 18000))
+    
+    results = [run_single(len(users), i, u, p, min_step, max_step) for i, (u, p) in enumerate(zip(users, pwds))]
 
     # 保存Token
     if encrypt_support:
@@ -109,4 +100,4 @@ if __name__ == "__main__":
     push_util.push_results(results, summary, push_util.PushConfig(
         config.get('PUSH_PLUS_TOKEN'), config.get('PUSH_PLUS_HOUR'), 30,
         config.get('PUSH_WECHAT_WEBHOOK_KEY'), config.get('TELEGRAM_BOT_TOKEN'), config.get('TELEGRAM_CHAT_ID')
-))
+    ))
