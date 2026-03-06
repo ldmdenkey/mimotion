@@ -11,6 +11,17 @@ def get_beijing_time():
 def format_now():
     return get_beijing_time().strftime("%Y-%m-%d %H:%M:%S")
 
+def get_min_max_by_time(config):
+    time_bj = get_beijing_time()
+    # 如果是晚上 18:00 之后运行（专门对应 21:00 的晚间任务）
+    if time_bj.hour >= 18:
+        min_s = int(config.get('MIN_STEP', 12000))
+        max_s = int(config.get('MAX_STEP', 18000))
+        return min_s, max_s, "夜间满额模式"
+    else:
+        # 如果是白天运行（专门对应 15:00 的下午任务，或你白天手动触发），使用保底数据
+        return 8000, 11000, "下午保底模式"
+
 class MiMotionRunner:
     def __init__(self, _user, _passwd):
         self.user = str(_user) if str(_user).startswith("+86") or "@" in str(_user) else "+86"+str(_user)
@@ -43,7 +54,7 @@ class MiMotionRunner:
         at = self.login()
         if not at: return "登录失败", False
         
-        # --- 吉利步数核心逻辑 ---
+        # --- 吉利步数核心逻辑（无4，且含6/8/9） ---
         step_val = 0
         for _ in range(200): # 尝试200次找最吉利的
             tmp = random.randint(min_s, max_s)
@@ -57,11 +68,11 @@ class MiMotionRunner:
         ok, msg = zeppHelper.post_fake_brand_data(step, at, self.user_id)
         return f"修改步数({step}) [{msg}]", ok
 
-def run_single(total, idx, u, p, min_step, max_step):
+def run_single(total, idx, u, p, min_step, max_step, mode_desc):
     print(f"[{format_now()}] [{idx+1}/{total}] 账号: {u[:3]}****{u[-4:]}")
     try:
         runner = MiMotionRunner(u, p)
-        runner.log_str += f"目标区间: {min_step}~{max_step}\n"
+        runner.log_str += f"当前策略: {mode_desc}, 目标区间: {min_step}~{max_step}\n"
         msg, ok = runner.run(min_step, max_step)
         print(runner.log_str + msg)
         return {"user":u, "success":ok, "msg":msg}
@@ -84,11 +95,10 @@ if __name__ == "__main__":
 
     users, pwds = config.get('USER').split('#'), config.get('PWD').split('#')
     
-    # 直接读取配置中的步数范围（去除时间折算，满额释放）
-    min_step = int(config.get('MIN_STEP', 12000))
-    max_step = int(config.get('MAX_STEP', 18000))
+    # 获取根据时间动态生成的区间
+    min_step, max_step, mode_desc = get_min_max_by_time(config)
     
-    results = [run_single(len(users), i, u, p, min_step, max_step) for i, (u, p) in enumerate(zip(users, pwds))]
+    results = [run_single(len(users), i, u, p, min_step, max_step, mode_desc) for i, (u, p) in enumerate(zip(users, pwds))]
 
     # 保存Token
     if encrypt_support:
