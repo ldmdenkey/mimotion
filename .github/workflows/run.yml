@@ -33,6 +33,7 @@ jobs:
         env:
             CONFIG: ${{ secrets.CONFIG }}
             AES_KEY: ${{ secrets.AES_KEY }}
+            TZ: Asia/Shanghai
         run: |
           pip3 install requests pytz pycryptodome
           python3 main.py
