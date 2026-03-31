@@ -31,7 +31,7 @@ jobs:
           
       - name: 执行同步
         env:
-            CONFIG: ${{ secrets.CONFIG }}
+            CONFIG: ${{ secrets.CONFIG_2 }}
             AES_KEY: ${{ secrets.AES_KEY }}
             TZ: Asia/Shanghai
         run: |
