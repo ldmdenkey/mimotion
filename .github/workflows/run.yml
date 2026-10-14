@@ -16,10 +16,13 @@ jobs:
 
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          # 优先用 PAT（真实用户身份，维持仓库活跃）；未配置时回退默认 GITHUB_TOKEN
+          token: ${{ secrets.PAT || github.token }}
 
       - name: 初始化Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.10"
 
