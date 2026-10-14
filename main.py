@@ -11,6 +11,11 @@ def get_beijing_time():
 def format_now():
     return get_beijing_time().strftime("%Y-%m-%d %H:%M:%S")
 
+# 获取时间戳（毫秒），用于记录 token 获取时间
+def get_time():
+    current_time = get_beijing_time()
+    return "%.0f" % (current_time.timestamp() * 1000)
+
 def get_min_max_by_time(config):
     time_bj = get_beijing_time()
     # 如果是晚上 18:00 之后运行（专门对应 21:00 的晚间任务）
@@ -31,24 +36,66 @@ class MiMotionRunner:
         self.user_id, self.log_str = None, ""
 
     def login(self):
-        user_info = user_tokens.get(self.user)
-        if user_info:
-            self.user_id = user_info.get("user_id")
-            self.device_id = user_info.get("device_id", self.device_id)
-            ok, _ = zeppHelper.check_app_token(user_info.get("app_token"))
+        user_token_info = user_tokens.get(self.user)
+        if user_token_info is not None:
+            access_token = user_token_info.get("access_token")
+            login_token = user_token_info.get("login_token")
+            app_token = user_token_info.get("app_token")
+            self.device_id = user_token_info.get("device_id")
+            self.user_id = user_token_info.get("user_id")
+            if self.device_id is None:
+                self.device_id = str(uuid.uuid4())
+                user_token_info["device_id"] = self.device_id
+            ok, msg = zeppHelper.check_app_token(app_token)
             if ok:
-                self.log_str += "使用加密Token成功\n"
-                return user_info.get("app_token")
-        
-        # 重新登录逻辑
-        token, msg = zeppHelper.login_access_token(self.user, self.password)
-        if not token: return None
-        lt, at, uid, _ = zeppHelper.grant_login_tokens(token, self.device_id, self.is_phone)
-        if not lt: return None
-        
-        user_tokens[self.user] = {"access_token":token, "login_token":lt, "app_token":at, "user_id":uid, "device_id":self.device_id}
-        self.user_id = uid
-        return at
+                self.log_str += "使用加密保存的app_token\n"
+                return app_token
+            else:
+                self.log_str += f"app_token失效 重新获取 last grant time: {user_token_info.get('app_token_time')}\n"
+                # 检查login_token是否可用
+                app_token, msg = zeppHelper.grant_app_token(login_token)
+                if app_token is None:
+                    self.log_str += f"login_token 失效 重新获取 last grant time: {user_token_info.get('login_token_time')}\n"
+                    login_token, app_token, user_id, msg = zeppHelper.grant_login_tokens(access_token, self.device_id, self.is_phone)
+                    if login_token is None:
+                        self.log_str += f"access_token 已失效：{msg} last grant time:{user_token_info.get('access_token_time')}\n"
+                    else:
+                        user_token_info["login_token"] = login_token
+                        user_token_info["app_token"] = app_token
+                        user_token_info["user_id"] = user_id
+                        user_token_info["login_token_time"] = get_time()
+                        user_token_info["app_token_time"] = get_time()
+                        self.user_id = user_id
+                        return app_token
+                else:
+                    self.log_str += "重新获取app_token成功\n"
+                    user_token_info["app_token"] = app_token
+                    user_token_info["app_token_time"] = get_time()
+                    return app_token
+
+        # access_token 失效 或者没有保存加密数据，完整重新登录
+        access_token, msg = zeppHelper.login_access_token(self.user, self.password)
+        if access_token is None:
+            self.log_str += "登录获取accessToken失败：%s" % msg
+            return None
+        login_token, app_token, user_id, msg = zeppHelper.grant_login_tokens(access_token, self.device_id, self.is_phone)
+        if login_token is None:
+            self.log_str += f"登录提取的 access_token 无效：{msg}"
+            return None
+
+        user_token_info = dict()
+        user_token_info["access_token"] = access_token
+        user_token_info["login_token"] = login_token
+        user_token_info["app_token"] = app_token
+        user_token_info["user_id"] = user_id
+        # 记录token获取时间
+        user_token_info["access_token_time"] = get_time()
+        user_token_info["login_token_time"] = get_time()
+        user_token_info["app_token_time"] = get_time()
+        user_token_info["device_id"] = self.device_id
+        user_tokens[self.user] = user_token_info
+        self.user_id = user_id
+        return app_token
 
     def run(self, min_s, max_s):
         at = self.login()
@@ -65,7 +112,16 @@ class MiMotionRunner:
         if step_val == 0: step_val = random.randint(min_s, max_s) # 彻底没辙时的保底
         
         step = str(step_val)
-        ok, msg = zeppHelper.post_fake_brand_data(step, at, self.user_id)
+        # 查询账号真实绑定的手环设备ID（华米已校验设备ID，硬编码假ID可能被拒）
+        user_token_info = user_tokens.get(self.user, {})
+        bound_device_id = user_token_info.get("bound_device_id")
+        if not bound_device_id and self.user_id:
+            bound_device_id = zeppHelper.get_user_device_id(at, self.user_id)
+            if bound_device_id:
+                user_token_info["bound_device_id"] = bound_device_id
+                user_tokens[self.user] = user_token_info
+                self.log_str += f"查找到已绑定设备ID: {bound_device_id}\n"
+        ok, msg = zeppHelper.post_fake_brand_data(step, at, self.user_id, device_id=bound_device_id)
         return f"修改步数({step}) [{msg}]", ok
 
 def run_single(total, idx, u, p, min_step, max_step, mode_desc):
