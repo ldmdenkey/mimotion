@@ -9,6 +9,11 @@ on:
     - cron: '0 11 * * *'
   workflow_dispatch:
 
+# 与「调度看护」共用同一并发组：两个工作流不会同时跑，避免 token 文件回写冲突
+concurrency:
+  group: mimotion-sync
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
