@@ -14,7 +14,7 @@ from util.aes_help import encrypt_data, HM_AES_KEY, HM_AES_IV
 
 # 网络请求重试封装：华米接口偶发断连（RemoteDisconnected / 连接重置），
 # 单次网络抖动不应导致当天该账号整体失败，统一加重试与超时
-def _request_with_retry(method, url, max_retries=3, timeout=10, **kwargs):
+def _request_with_retry(method, url, max_retries=4, timeout=15, **kwargs):
     kwargs.setdefault("timeout", timeout)
     last_err = None
     for attempt in range(max_retries):
@@ -23,7 +23,7 @@ def _request_with_retry(method, url, max_retries=3, timeout=10, **kwargs):
         except requests.RequestException as e:
             last_err = e
             if attempt < max_retries - 1:
-                time.sleep(2 * (attempt + 1))
+                time.sleep(3 * (attempt + 1))
     raise last_err
 
 
@@ -54,7 +54,7 @@ def login_access_token(user, password) -> (str | None, str | None):
     cipher_data = encrypt_data(plaintext, HM_AES_KEY, HM_AES_IV)
 
     url1 = 'https://api-user.zepp.com/v2/registrations/tokens'
-    r1 = _request_with_retry("post", url1, data=cipher_data, headers=headers, allow_redirects=False, timeout=5)
+    r1 = _request_with_retry("post", url1, data=cipher_data, headers=headers, allow_redirects=False, timeout=15)
     if r1.status_code != 303:
         return None, "登录异常，status: %d" % r1.status_code
     try:
@@ -263,7 +263,7 @@ def get_user_device_id(app_token, userid) -> str | None:
         "User-Agent": "MiFit6.14.0 (M2007J1SC; Android 12; Density/2.75)"
     }
     try:
-        resp = _request_with_retry("get", url, headers=headers, timeout=5).json()
+        resp = _request_with_retry("get", url, headers=headers, timeout=15).json()
         items = resp.get("items", [])
         if items:
             # 1. 优先匹配 deviceType == 0 (手环/手表)
